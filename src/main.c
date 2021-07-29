@@ -1,11 +1,3 @@
-/*
-ToDo: 
-- Toggle interrupt mask with USART instruction
-- trigger per change number per USART
-
-*/
-
-
 #include "stm32f4xx.h"
 #include <stdint.h>
 #include <string.h>
@@ -34,13 +26,21 @@ PC0			A5, output 5, S2R
 
 */
 
+// GLOBAL VARIABLES
 uint8_t currentState;
+
+uint8_t n_epp = 1; // number of emissions per profile
+uint8_t n_epp_digit[2] = {255, 255}; // char array representing the 2 digits for desired n_epp
+uint8_t n_trigger = 0; // number of received triggers
+
 char transString[200];
 char recChar;
 char recChar_desiredState_int;
+char recChar_instruction; // 0: toggle interrupt mask; 1: set n_epp
 
 uint8_t lineStarted = 0;
 
+// FUNCTIONS
 // pin set/ reset functions:
 static inline void set_S1L(void)
 {
@@ -180,13 +180,26 @@ void usart2_transCurrentState(void)
 
 void EXTI0_IRQHandler() // this function gets called in case of a trigger interrupt
 {
-    ++currentState;
-    if (currentState > NUMBER_OF_OUTPUT_STATES)
+    ++n_trigger;
+    if (n_trigger == n_epp) // if n_epp was reached
     {
-        currentState = 1;
-    }    
-    setOutputs(currentState);
-    usart2_transCurrentState();
+        n_epp = 0;
+        ++currentState;
+        if (currentState > NUMBER_OF_OUTPUT_STATES)
+        {
+            currentState = 1;
+        }    
+        setOutputs(currentState);
+        usart2_transCurrentState();
+    }
+
+    // print current number of triggers:
+    usart2_transChar('\b');
+    usart2_transChar('\b');
+    usart2_transChar('\b');
+    sprintf(transString, "n%d\n", n_trigger);
+    usart2_transString(transString);
+    
     EXTI->PR |= EXTI_PR_PR0; // interrupt finished
 }
 
@@ -201,27 +214,22 @@ void newLineIfLineStarted(void)
 
 int main()
 {
-    // initialize GPIO pins
+    // initialize GPIO pins:
     SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_GPIOAEN); // clock to port A
     SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_GPIOBEN); // clock to port B
     SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_GPIOCEN); // clock to port C
-
-
     // set pins to output:
     MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER1, GPIO_MODER_MODE1_0);
     MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER4, GPIO_MODER_MODE4_0);
     MODIFY_REG(GPIOB->MODER, GPIO_MODER_MODER0, GPIO_MODER_MODE0_0);
     MODIFY_REG(GPIOC->MODER, GPIO_MODER_MODER1, GPIO_MODER_MODE1_0);
     MODIFY_REG(GPIOC->MODER, GPIO_MODER_MODER0, GPIO_MODER_MODE0_0);
-
-    // set fastest speed to all outputs
+    // set fastest speed to all outputs:
     MODIFY_REG(GPIOA->OSPEEDR, 0, GPIO_OSPEEDR_OSPEED1);
     MODIFY_REG(GPIOA->OSPEEDR, 0, GPIO_OSPEEDR_OSPEED4);
     MODIFY_REG(GPIOB->OSPEEDR, 0, GPIO_OSPEEDR_OSPEED0);
     MODIFY_REG(GPIOC->OSPEEDR, 0, GPIO_OSPEEDR_OSPEED1);
     MODIFY_REG(GPIOC->OSPEEDR, 0, GPIO_OSPEEDR_OSPEED0);
-
-
     // pin A0 is input by default
     // !!!PULL UP ONLY FOR TESTING ON BREADBOARD!!! 
     // !! comment out the following line for normal use case:
@@ -242,21 +250,37 @@ int main()
         // here usart2 communication:
         if(USART2->SR & USART_SR_RXNE) // if data is ready to be read
         {
-            recChar = usart2_recChar();
-            if (recChar>=48 + 1 && recChar <= 48 + NUMBER_OF_OUTPUT_STATES) // in ASCII: 0d48 = char 0 
+            recChar = usart2_recChar(); // receive char
+
+            // if valid number for desired state was received:      
+            if (recChar>=48 + 1 && recChar <= 48 + NUMBER_OF_OUTPUT_STATES) // in ASCII: 0d48 = char '0' 
             {
+                recChar_instruction = 255;
                 recChar_desiredState_int = (uint8_t) recChar - 48;
                 usart2_transChar('\b');
                 usart2_transChar(recChar);
                 lineStarted = 1;
             }
-            else if (recChar != '\r')
+
+            // if valid instruction was received:
+            else if (recChar == 'i' || recChar != 'n')
             {
                 recChar_desiredState_int = 255;
                 usart2_transChar('\b');
+                usart2_transChar(recChar);
+
+                if (recChar == 'i')
+                {
+                    recChar_instruction = 0;
+                }
+
+                if (recChar == 'n')
+                {
+                    recChar_instruction = 1;
+                }
             }
             
-            if (recChar == '\r')
+            else if (recChar == '\r')
             {
                 if (recChar_desiredState_int != 255)
                 {
@@ -268,7 +292,67 @@ int main()
                     sprintf(transString, "state was set to %d\n", currentState);
                     usart2_transString(transString);
                 }
+                else if (recChar_instruction != 255)
+                {
+                    // follow instruction:
+                    if (recChar_instruction == 0) // toggle interrupt mask
+                    {
+                        if (EXTI->IMR & EXTI_IMR_IM0) // if interrupt is unmasked
+                        {
+                            EXTI->IMR &= ~EXTI_IMR_IM0; // mask trigger interrupt
+                            usart2_transString("I DON'T react to triggers!\n");
+                        }
+                        else
+                        {
+                            EXTI->IMR |= EXTI_IMR_IM0; // unmask trigger interrupt
+                            usart2_transString("I DO react to triggers\n");
+                        }
+                        recChar_instruction = 255;
+                    }
+
+                    else if (recChar_instruction == 1) // set n_epp
+                    {
+                        EXTI->IMR &= ~EXTI_IMR_IM0; // mask trigger interrupt
+
+                        usart2_transString("Please type desired n_epp: ");
+                        while (n_epp_digit[1] > 9) // loop until 2nd digit of n_epp is received
+                        {
+                            if(USART2->SR & USART_SR_RXNE) // if data is ready to be read
+                            {
+                                recChar = usart2_recChar();
+                                if (recChar >= 48 && recChar <= 57) // if a digit was received
+                                {
+                                    if (n_epp_digit[0] > 9) // n_epp_digit[0] is not yet written write first digit
+                                    {
+                                        n_epp_digit[0] = recChar - 48;
+                                        usart2_transChar(recChar);
+                                    }
+                                    else // write second digit
+                                    {
+                                        n_epp_digit[1] = recChar - 48;
+                                        usart2_transChar(recChar);
+                                        usart2_transChar('\n');
+                                    }                                                                        
+                                }
+                            }
+                        }
+                        n_epp = 10*n_epp_digit[0] + n_epp_digit[1];
+                        sprintf(transString, "n_epp was set to %d\n", n_epp);
+                        usart2_transString(transString);                        
+                        recChar_instruction = 255;
+
+                        EXTI->IMR |= EXTI_IMR_IM0; // unmask trigger interrupt
+                    }
+                }
+                
             }
+/*
+            else // no valid instruction was received
+            {
+                recChar_desiredState_int = 255;
+                usart2_transChar('\b');
+            }
+*/            
         }
     }
     
