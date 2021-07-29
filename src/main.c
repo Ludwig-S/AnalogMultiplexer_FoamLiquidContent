@@ -199,7 +199,7 @@ void EXTI0_IRQHandler() // this function gets called in case of a trigger interr
     usart2_transChar('\b');
     sprintf(transString, "n%d\n", n_trigger);
     usart2_transString(transString);
-    
+    lineStarted=1;
     EXTI->PR |= EXTI_PR_PR0; // interrupt finished
 }
 
