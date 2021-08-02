@@ -181,9 +181,9 @@ void usart2_transCurrentState(void)
 void EXTI0_IRQHandler() // this function gets called in case of a trigger interrupt
 {
     ++n_trigger;
-    if (n_trigger == n_epp) // if n_epp was reached
+    if (n_trigger > n_epp) // if n_epp was reached
     {
-        n_epp = 0;
+        n_trigger = 1;
         ++currentState;
         if (currentState > NUMBER_OF_OUTPUT_STATES)
         {
@@ -233,7 +233,7 @@ int main()
     // pin A0 is input by default
     // !!!PULL UP ONLY FOR TESTING ON BREADBOARD!!! 
     // !! comment out the following line for normal use case:
-    // MODIFY_REG(GPIOA->PUPDR, GPIO_PUPDR_PUPDR0, GPIO_PUPDR_PUPDR0_0); // pull up to PA0
+    MODIFY_REG(GPIOA->PUPDR, GPIO_PUPDR_PUPDR0, GPIO_PUPDR_PUPDR0_0); // pull up to PA0
     // initalize interrupt for trigger input:
     RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN; // clock to SYSCFG
     // MODIFY_REG(SYSCFG->EXTICR[2], SYSCFG_EXTICR3_EXTI9, 0); // EXTI9 points to A by default
@@ -263,7 +263,7 @@ int main()
             }
 
             // if valid instruction was received:
-            else if (recChar == 'i' || recChar != 'n')
+            else if (recChar == 'i' || recChar == 'n')
             {
                 recChar_desiredState_int = 255;
                 usart2_transChar('\b');
@@ -290,6 +290,7 @@ int main()
                     recChar_desiredState_int = 255; // reset desired state
                     newLineIfLineStarted();                
                     sprintf(transString, "state was set to %d\n", currentState);
+                    n_trigger = 0;
                     usart2_transString(transString);
                 }
                 else if (recChar_instruction != 255)
@@ -314,6 +315,7 @@ int main()
                     {
                         EXTI->IMR &= ~EXTI_IMR_IM0; // mask trigger interrupt
 
+                        usart2_transChar('\b');
                         usart2_transString("Please type desired n_epp: ");
                         while (n_epp_digit[1] > 9) // loop until 2nd digit of n_epp is received
                         {
@@ -340,7 +342,8 @@ int main()
                         sprintf(transString, "n_epp was set to %d\n", n_epp);
                         usart2_transString(transString);                        
                         recChar_instruction = 255;
-
+                        n_epp_digit[0] = 255;
+                        n_epp_digit[1] = 255;
                         EXTI->IMR |= EXTI_IMR_IM0; // unmask trigger interrupt
                     }
                 }
