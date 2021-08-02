@@ -233,7 +233,7 @@ int main()
     // pin A0 is input by default
     // !!!PULL UP ONLY FOR TESTING ON BREADBOARD!!! 
     // !! comment out the following line for normal use case:
-    MODIFY_REG(GPIOA->PUPDR, GPIO_PUPDR_PUPDR0, GPIO_PUPDR_PUPDR0_0); // pull up to PA0
+    // MODIFY_REG(GPIOA->PUPDR, GPIO_PUPDR_PUPDR0, GPIO_PUPDR_PUPDR0_0); // pull up to PA0
     // initalize interrupt for trigger input:
     RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN; // clock to SYSCFG
     // MODIFY_REG(SYSCFG->EXTICR[2], SYSCFG_EXTICR3_EXTI9, 0); // EXTI9 points to A by default
