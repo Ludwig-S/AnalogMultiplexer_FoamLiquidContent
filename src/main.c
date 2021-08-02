@@ -301,12 +301,12 @@ int main()
                         if (EXTI->IMR & EXTI_IMR_IM0) // if interrupt is unmasked
                         {
                             EXTI->IMR &= ~EXTI_IMR_IM0; // mask trigger interrupt
-                            usart2_transString("I DON'T react to triggers!\n");
+                            usart2_transString("\nI DON'T react to triggers!\n");
                         }
                         else
                         {
                             EXTI->IMR |= EXTI_IMR_IM0; // unmask trigger interrupt
-                            usart2_transString("I DO react to triggers\n");
+                            usart2_transString("\nI DO react to triggers\n");
                         }
                         recChar_instruction = 255;
                     }
@@ -344,6 +344,7 @@ int main()
                         recChar_instruction = 255;
                         n_epp_digit[0] = 255;
                         n_epp_digit[1] = 255;
+                        n_trigger = 0;
                         EXTI->IMR |= EXTI_IMR_IM0; // unmask trigger interrupt
                     }
                 }
